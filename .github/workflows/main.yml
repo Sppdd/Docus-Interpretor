@@ -1,10 +1,6 @@
 name: Framework Data Import
 on:
-  push:
-    paths:
-      - .github/workflows/main.yml
-  schedule:
-    - cron: '0 * * * *'
+  workflow_dispatch:  # This makes it manual trigger only
 
 jobs:
   scheduled:
@@ -18,17 +14,26 @@ jobs:
       - name: Check out repo
         uses: actions/checkout@v2
       
-      - name: Fetch Framework Code
-        uses: githubocto/flat@v2
-        with:
-          http_url: https://github.com/hypermodeinc/modus
-          downloaded_filename: framework_code.json
+      - name: Clone Framework Code
+        run: |
+          git clone https://github.com/hypermodeinc/modus.git
+          cd modus
+          echo "{ \"repository\": \"$(pwd)\", \"files\": $(find . -type f -not -path '*/\.*' -print0 | jq -R -s -c 'split("\u0000")[:-1]')}" > ../framework_code.json
+          cd ..
 
-      - name: Fetch Framework Docs
-        uses: githubocto/flat@v2
-        with:
-          http_url: https://github.com/hypermodeinc/docs
-          downloaded_filename: framework_docs.json
+      - name: Clone Framework Docs
+        run: |
+          git clone https://github.com/hypermodeinc/docs.git
+          cd docs
+          echo "{ \"repository\": \"$(pwd)\", \"files\": $(find . -type f -not -path '*/\.*' -print0 | jq -R -s -c 'split("\u0000")[:-1]')}" > ../framework_docs.json
+          cd ..
+
+      - name: Install jq
+        run: sudo apt-get install jq
+
+      - name: Process Files
+        run: |
+          jq -s '.[0] * .[1]' framework_code.json framework_docs.json > combined_framework_data.json
 
       - name: Neo4j Import
         uses: johnymontana/flat-graph@v1.2
@@ -36,3 +41,4 @@ jobs:
           neo4j-uri: ${{ secrets.NEO4J_URI }}
           neo4j-user: ${{ secrets.NEO4J_USERNAME }}
           neo4j-password: ${{ secrets.NEO4J_PASSWORD }}
+          file: combined_framework_data.json
