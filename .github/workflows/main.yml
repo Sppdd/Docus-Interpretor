@@ -1,0 +1,27 @@
+name: Framework Data Import
+on:
+  push:
+    paths:
+      - .github/workflows/import.yml
+  schedule:
+    - cron: '*/60 * * * *'
+
+jobs:
+  scheduled:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v2
+      
+      - name: Fetch Data
+        uses: githubocto/flat@v2
+        with:
+          http_url: YOUR_FRAMEWORK_DOCS_URL
+          downloaded_filename: framework_data.json
+
+      - name: Neo4j Import
+        uses: johnymontana/flat-graph@v1.2
+        with:
+          neo4j-user: ${{secrets.NEO4J_USER}}
+          neo4j-password: ${{secrets.NEO4J_PASSWORD}}
+          neo4j-uri: ${{secrets.NEO4J_URI}}
