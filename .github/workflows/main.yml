@@ -16,7 +16,7 @@ jobs:
       - name: Fetch Data
         uses: githubocto/flat@v2
         with:
-          http_url: YOUR_FRAMEWORK_DOCS_URL
+          http_url: https://github.com/hypermodeinc/modus
           downloaded_filename: framework_data.json
 
       - name: Neo4j Import
