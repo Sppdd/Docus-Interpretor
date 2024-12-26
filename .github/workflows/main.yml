@@ -1,6 +1,6 @@
 name: Framework Data Import
 on:
-  workflow_dispatch:  # This makes it manual trigger only
+  workflow_dispatch:  # Manual trigger only
 
 jobs:
   scheduled:
@@ -14,26 +14,99 @@ jobs:
       - name: Check out repo
         uses: actions/checkout@v2
       
-      - name: Clone Framework Code
-        run: |
-          git clone https://github.com/hypermodeinc/modus.git
-          cd modus
-          echo "{ \"repository\": \"$(pwd)\", \"files\": $(find . -type f -not -path '*/\.*' -print0 | jq -R -s -c 'split("\u0000")[:-1]')}" > ../framework_code.json
-          cd ..
-
-      - name: Clone Framework Docs
-        run: |
-          git clone https://github.com/hypermodeinc/docs.git
-          cd docs
-          echo "{ \"repository\": \"$(pwd)\", \"files\": $(find . -type f -not -path '*/\.*' -print0 | jq -R -s -c 'split("\u0000")[:-1]')}" > ../framework_docs.json
-          cd ..
-
       - name: Install jq
         run: sudo apt-get install jq
 
-      - name: Process Files
+      - name: Clone and Process Framework Code
         run: |
-          jq -s '.[0] * .[1]' framework_code.json framework_docs.json > combined_framework_data.json
+          git clone https://github.com/hypermodeinc/modus.git
+          cd modus
+          # Create nodes and relationships data structure
+          echo '{"nodes": [], "relationships": []}' > ../framework_data.json
+          
+          # Process each file and create nodes
+          find . -type f -not -path '*/\.*' -print0 | while IFS= read -r -d '' file; do
+            filename=$(basename "$file")
+            directory=$(dirname "$file")
+            content=$(cat "$file" | base64)
+            extension="${filename##*.}"
+            
+            # Create file node
+            jq --arg path "$file" \
+               --arg filename "$filename" \
+               --arg dir "$directory" \
+               --arg content "$content" \
+               --arg ext "$extension" \
+               --arg type "file" \
+               '.nodes += [{
+                  "type": $type,
+                  "path": $path,
+                  "filename": $filename,
+                  "directory": $dir,
+                  "content": $content,
+                  "extension": $ext
+                }]' ../framework_data.json > temp.json && mv temp.json ../framework_data.json
+            
+            # Create directory nodes and relationships
+            current_dir=""
+            for dir in $(echo "$directory" | tr '/' ' '); do
+              if [ -z "$current_dir" ]; then
+                current_dir="$dir"
+              else
+                current_dir="$current_dir/$dir"
+              fi
+              
+              # Add directory node
+              jq --arg path "$current_dir" \
+                 --arg type "directory" \
+                 '.nodes += [{
+                    "type": $type,
+                    "path": $path
+                  }]' ../framework_data.json > temp.json && mv temp.json ../framework_data.json
+            done
+          done
+          cd ..
+
+      - name: Clone and Process Framework Docs
+        run: |
+          git clone https://github.com/hypermodeinc/docs.git
+          cd docs
+          # Process documentation files
+          find . -type f -not -path '*/\.*' -print0 | while IFS= read -r -d '' file; do
+            filename=$(basename "$file")
+            directory=$(dirname "$file")
+            content=$(cat "$file" | base64)
+            extension="${filename##*.}"
+            
+            # Create documentation node
+            jq --arg path "$file" \
+               --arg filename "$filename" \
+               --arg dir "$directory" \
+               --arg content "$content" \
+               --arg ext "$extension" \
+               --arg type "documentation" \
+               '.nodes += [{
+                  "type": $type,
+                  "path": $path,
+                  "filename": $filename,
+                  "directory": $dir,
+                  "content": $content,
+                  "extension": $ext
+                }]' ../framework_data.json > temp.json && mv temp.json ../framework_data.json
+          done
+          cd ..
+
+      - name: Create Relationships
+        run: |
+          jq '.relationships = [
+            .nodes[] | 
+            select(.type == "file" or .type == "documentation") | 
+            {
+              "start": .path,
+              "end": .directory,
+              "type": "CONTAINS"
+            }
+          ]' framework_data.json > temp.json && mv temp.json framework_data.json
 
       - name: Neo4j Import
         uses: johnymontana/flat-graph@v1.2
@@ -41,4 +114,4 @@ jobs:
           neo4j-uri: ${{ secrets.NEO4J_URI }}
           neo4j-user: ${{ secrets.NEO4J_USERNAME }}
           neo4j-password: ${{ secrets.NEO4J_PASSWORD }}
-          file: combined_framework_data.json
+          file: framework_data.json
